@@ -1,0 +1,479 @@
+{# --- Start of File: templates/video_details.html --- #}
+{% extends "base.html" %}
+
+{% block title %}Details - {{ video.get('title', 'Video') }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Small style for better spacing in actions */
+    .action-group { border-left: 3px solid var(--bs-border-color); padding-left: 1rem; margin-bottom: 1rem; }
+    .action-group:first-child { border-left: none; padding-left: 0; }
+    @media (min-width: 768px) { /* md breakpoint */
+      .action-group { margin-bottom: 0; }
+    }
+    .exchange-table th, .exchange-table td { vertical-align: middle; }
+    .exchange-table .form-check-input { margin-top: 0; } /* Align checkbox */
+</style>
+{% endblock %}
+
+
+{% block content %}
+{# --- Add this ID to the main container for JS --- #}
+<div class="container mt-4" id="videoDetailsContainer" data-video-id="{{ video.get('id', 'N/A') }}">
+     {# --- Breadcrumbs & Header --- #}
+     <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Home</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Video Details (ID: {{ video.get('id', 'N/A') }})</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap">
+         <h1 class="h3 mb-2 mb-md-0 me-md-3">Video Details</h1>
+         <div class="d-flex align-items-center flex-wrap">
+             <a href="{{ url_for('video_details', video_id=video.get('id', 0)) }}" class="btn btn-sm btn-outline-secondary mb-1 mb-md-0 me-2" title="Refresh Status">
+                 <i class="bi bi-arrow-clockwise"></i> Refresh
+             </a>
+             <a href="{{ url_for('index') }}" class="btn btn-sm btn-secondary mb-1 mb-md-0">
+                <i class="bi bi-arrow-left"></i> Back to List
+            </a>
+         </div>
+    </div>
+
+
+    {# --- Main Video Info Card --- #}
+    {% if video %}
+    <div class="card mb-4 shadow-sm">
+         <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0" title="{{ video.get('title', 'N/A') }}">
+                 <i class="bi bi-film me-2"></i>{{ video.get('title', 'N/A') | truncate(100) }}
+            </h5>
+            <span class="badge bg-secondary-subtle text-emphasis-secondary">ID: {{ video.get('id') }}</span>
+         </div>
+         <ul class="list-group list-group-flush">
+             <li class="list-group-item"><strong><i class="bi bi-youtube me-2"></i>YouTube URL:</strong> <a href="{{ video.get('youtube_url') }}" target="_blank" rel="noopener noreferrer">{{ video.get('youtube_url') }}</a></li>
+             <li class="list-group-item"><strong>Resolution:</strong> {{ video.get('resolution', 'N/A') }}</li>
+
+             {# === UPDATED STATUS DISPLAY LOGIC === #}
+             {% set granular_statuses = [
+                 video.get('download_status'), video.get('audio_status'), video.get('transcript_status'),
+                 video.get('diarization_status'), video.get('exchange_id_status')
+             ] %}
+             {% set has_error = granular_statuses | select('equalto', 'Error') | list | length > 0 %}
+             {% set is_running = granular_statuses | select('equalto', 'Running') | list | length > 0 %}
+             {% set is_queued = granular_statuses | select('equalto', 'Queued') | list | length > 0 %}
+             {% set is_pending = granular_statuses | select('equalto', 'Pending') | list | length > 0 %}
+             {# Check if ALL essential steps are Complete #}
+             {% set steps_for_complete = ['download', 'audio', 'transcript', 'diarization', 'exchange_id'] %} {# Adjust if some steps are optional #}
+             {% set all_complete = True %}
+             {% for step in steps_for_complete %}
+                {% if video.get(step ~ '_status', 'Pending') != 'Complete' %}{% set all_complete = False %}{% endif %}
+             {% endfor %}
+
+
+             {% set overall_status_text = 'Unknown' %}
+             {% set current_step_text = 'Idle' %}
+             {% set overall_status_class = 'unknown' %}
+
+             {% if has_error %}
+                 {% set overall_status_text = 'Error' %}
+                 {% set overall_status_class = 'error' %}
+                 {# Find first error step #}
+                 {% if video.get('download_status') == 'Error' %}{% set current_step_text = 'Download Failed' %}
+                 {% elif video.get('audio_status') == 'Error' %}{% set current_step_text = 'Audio Ext. Failed' %}
+                 {% elif video.get('transcript_status') == 'Error' %}{% set current_step_text = 'Transcript Failed' %}
+                 {% elif video.get('diarization_status') == 'Error' %}{% set current_step_text = 'Diarization Failed' %}
+                 {% elif video.get('exchange_id_status') == 'Error' %}{% set current_step_text = 'Exchange ID Failed' %}
+                 {% else %}{% set current_step_text = 'Error in Processing' %}
+                 {% endif %}
+             {% elif is_running %}
+                 {% set overall_status_text = 'Processing' %}
+                 {% set overall_status_class = 'running' %} {# Use 'running' for class to match CSS #}
+                 {# Find first running step #}
+                 {% if video.get('download_status') == 'Running' %}{% set current_step_text = 'Downloading...' %}
+                 {% elif video.get('audio_status') == 'Running' %}{% set current_step_text = 'Extracting Audio...' %}
+                 {% elif video.get('transcript_status') == 'Running' %}{% set current_step_text = 'Transcribing...' %}
+                 {% elif video.get('diarization_status') == 'Running' %}{% set current_step_text = 'Diarizing...' %}
+                 {% elif video.get('exchange_id_status') == 'Running' %}{% set current_step_text = 'Finding Exchanges...' %}
+                 {% else %}{% set current_step_text = 'Processing...' %}
+                 {% endif %}
+             {% elif is_queued %}
+                 {% set overall_status_text = 'Queued' %}
+                 {% set overall_status_class = 'queued' %}
+                 {% set current_step_text = 'Queued' %}
+             {% elif all_complete %}
+                 {% set overall_status_text = 'Complete' %}
+                 {% set overall_status_class = 'complete' %}
+                 {% set current_step_text = 'All Steps Complete' %}
+             {% elif video.get('download_status') == 'Complete' %} {# Ready for next steps if download done #}
+                 {% set overall_status_text = 'Ready' %}
+                 {% set overall_status_class = 'ready' %}
+                 {% set current_step_text = 'Ready for Analysis' %}
+             {% else %} {# Default - likely Pending Download #}
+                 {% set overall_status_text = 'Pending' %}
+                 {% set overall_status_class = 'pending' %}
+                 {% set current_step_text = 'Pending Download' %}
+             {% endif %}
+             {# === END UPDATED LOGIC === #}
+
+             <li class="list-group-item d-flex justify-content-between align-items-center">
+                <span><strong>Overall Status:</strong></span>
+                {# Use derived status and class #}
+                <span class="badge rounded-pill status-{{ overall_status_class }} p-2">
+                    {{ overall_status_text }}
+                </span>
+             </li>
+              <li class="list-group-item d-flex justify-content-between align-items-center">
+                <span><strong>Current Step/State:</strong></span>
+                 {# Use derived step text #}
+                 <span class="processing-status badge bg-body-secondary text-body-secondary p-2" title="{{ current_step_text }}">
+                    {{ current_step_text }}
+                 </span>
+              </li>
+             <li class="list-group-item"><strong>Video File:</strong> <code>{{ video.get('file_path', 'N/A') }}</code></li>
+             <li class="list-group-item"><strong>Audio File:</strong> <code>{{ video.get('audio_path', '(Not Available / Pending)') }}</code></li>
+             <li class="list-group-item"><strong>Submitted:</strong> {{ video.get('created_at') | datetimeformat }}</li>
+             <li class="list-group-item"><strong>Last Update:</strong> {{ video.get('updated_at') | datetimeformat }}</li>
+
+             {# Display first error message if any step failed #}
+             {% if has_error %}
+                {% set first_error = None %}
+                {% for step in ['download', 'audio', 'transcript', 'diarization', 'exchange_id'] %}
+                    {% if video.get(step~'_status') == 'Error' and not first_error %} {# Use .get() #}
+                        {% set first_error = video.get(step~'_error_message') %} {# Use .get() #}
+                    {% endif %}
+                {% endfor %}
+                <li class="list-group-item" id="error-details">
+                    <strong class="d-block mb-2 text-danger-emphasis"><i class="bi bi-exclamation-octagon-fill me-1"></i> Error Details:</strong>
+                    <pre class="error-message">{{ first_error | default('No specific error message recorded.') }}</pre>
+                     <small class="text-muted">Check individual step statuses below for more specific errors.</small>
+                 </li>
+             {% endif %}
+        </ul>
+    </div>
+
+    {# --- Pipeline Control Panel (NEW) --- #}
+    <div class="card mb-4 shadow-sm">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-gear-wide-connected me-2"></i>Pipeline Control Panel</h5>
+        </div>
+        <div class="list-group list-group-flush" id="pipelineControlPanel">
+            {# Define each step details #}
+            {% set pipeline_steps = [
+                {'name': 'download', 'label': '1. Download Video', 'prereq': False},
+                {'name': 'audio', 'label': '2. Extract Audio', 'prereq': 'download'},
+                {'name': 'transcript', 'label': '3. Transcribe', 'prereq': 'audio'},
+                {'name': 'diarization', 'label': '4. Diarize (Full)', 'prereq': 'audio'},
+                {'name': 'exchange_id', 'label': '5. Auto-ID Exchanges', 'prereq': 'transcript'}
+            ] %}
+
+            {% for step in pipeline_steps %}
+                {# Get status and error message for the current step using .get() for safety #}
+                {% set status = video.get(step.name ~ '_status', 'Unknown') %}
+                {% set error_msg = video.get(step.name ~ '_error_message') %}
+                {% set timestamp = video.get('updated_at') %} {# Use main updated_at or add step-specific timestamps later #}
+
+                {# --- Logic to determine if the button should be enabled --- #}
+                {% set button_enabled = True %}
+                {# Check prerequisite step status #}
+                {% if step.prereq %}
+                    {% set prereq_status = video.get(step.prereq ~ '_status', 'Pending') %} {# Use .get() #}
+                    {% if prereq_status != 'Complete' %}
+                        {% set button_enabled = False %}
+                    {% endif %}
+                {% endif %}
+                {# Disable if currently running or queued #}
+                {% if status in ['Running', 'Queued'] %}
+                    {% set button_enabled = False %}
+                {% endif %}
+
+                <div class="list-group-item step">
+                    <span class="step-label">{{ step.label }}</span>
+                    {# Status Display Area #}
+                    <span class="step-status" id="{{ step.name }}StatusDisplay">
+                        <span id="{{ step.name }}StatusBadge" class="badge rounded-pill status-{{ status | lower }} status-badge" title="{{ error_msg | default('') }}">
+                            {{ status }}
+                        </span>
+                        {# Display error icon if status is Error #}
+                        {% if status == 'Error' %}
+                             <i class="bi bi-exclamation-triangle-fill text-danger ms-1" title="{{ error_msg | default('Error details unavailable') }}"></i>
+                        {% endif %}
+                    </span>
+                    {# Action Button Area #}
+                    <span class="step-actions">
+                        <button class="btn btn-sm {% if status == 'Complete' %}btn-outline-secondary{% elif status == 'Error' %}btn-outline-warning{% else %}btn-outline-primary{% endif %}"
+                                data-action="{{ step.name }}" {# Matches action name in app.js #}
+                                {% if not button_enabled %}disabled{% endif %}
+                                title="{{ 'Re-run' if status == 'Complete' else ('Retry' if status == 'Error' else 'Run') }} {{ step.label }}">
+                            {# Change icon based on state #}
+                            <i class="bi {% if status == 'Complete' or status == 'Error' %}bi-arrow-repeat{% else %}bi-play-fill{% endif %}"></i>
+                             {{ 'Re-run' if status == 'Complete' else ('Retry' if status == 'Error' else 'Run') }}
+                        </button>
+                    </span>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+
+    {# --- Analysis Results Accordion --- #}
+    <div class="accordion mb-4" id="analysisAccordion">
+        {# --- Manage Exchanges Section --- #}
+         <div class="accordion-item">
+            <h2 class="accordion-header" id="headingLongExchanges">
+                <button class="accordion-button {{ 'collapsed' if not long_exchanges else '' }}" type="button" data-bs-toggle="collapse" data-bs-target="#collapseLongExchanges" aria-expanded="{{ 'true' if long_exchanges else 'false' }}" aria-controls="collapseLongExchanges">
+                     <i class="bi bi-list-columns-reverse me-2"></i> Manage Exchanges (Auto & Manual)
+                 </button>
+            </h2>
+            <div id="collapseLongExchanges" class="accordion-collapse collapse {{ 'show' if long_exchanges else '' }}" aria-labelledby="headingLongExchanges">
+                 <div class="accordion-body">
+                     {# Add Manual Marking Form Here #}
+                     <div class="manual-control-group mb-4 border rounded p-3">
+                         <h6 class="mb-3"><i class="bi bi-plus-lg"></i> Mark Manual Exchange</h6>
+                         <form id="markManualExchangeForm" class="row g-3 align-items-end">
+                             <div class="col-auto">
+                                 <label for="manualStartTime" class="form-label">Start Time (s)</label>
+                                 <input type="number" class="form-control form-control-sm" id="manualStartTime" step="0.1" min="0" required>
+                             </div>
+                             <div class="col-auto">
+                                 <label for="manualEndTime" class="form-label">End Time (s)</label>
+                                 <input type="number" class="form-control form-control-sm" id="manualEndTime" step="0.1" min="0" required>
+                             </div>
+                             <div class="col-auto">
+                                 <button type="submit" class="btn btn-sm btn-success">
+                                     <i class="bi bi-check-lg"></i> Mark Exchange
+                                 </button>
+                             </div>
+                             <div class="col-12">
+                                 <span id="manualMarkStatusDisplay" class="form-text"></span> {# Status message area #}
+                             </div>
+                         </form>
+                     </div>
+                     <hr>
+                     <p class="text-body-secondary"><small>Below are automatically identified ('Auto') and manually marked ('Manual') exchanges. Use the buttons to run Phase 2 analysis steps (Diarization Processing, Clip Definition, Clip Cutting) for each exchange.</small></p>
+
+                     {% if long_exchanges and long_exchanges is iterable %}
+                         <div class="table-responsive mb-3">
+                             <table class="table table-sm table-hover exchange-table">
+                                 <thead>
+                                     <tr>
+                                         <th style="width: 8%;">Label</th>
+                                         <th style="width: 8%;">Type</th>
+                                         <th style="width: 10%;">Start (s)</th>
+                                         <th style="width: 10%;">End (s)</th>
+                                         <th style="width: 8%;">Duration</th>
+                                         <th style="width: 15%;">Diarization Status</th>
+                                         <th style="width: 15%;">Clip Def. Status</th>
+                                         <th style="width: 15%;">Clip Cut Status</th>
+                                         <th style="width: 10%;">Actions</th>
+                                     </tr>
+                                 </thead>
+                                 <tbody id="exchangeTableBody"> {# Add ID for JS delegation #}
+                                 {% for exchange in long_exchanges %}
+                                     {% set diar_status = exchange.get('diarization_status', 'Pending') %}
+                                     {% set def_status = exchange.get('clip_definition_status', 'Pending') %}
+                                     {% set cut_status = exchange.get('clip_cutting_status', 'Pending') %}
+                                     {% set has_sub_error = 'Error' in [diar_status, def_status, cut_status] %}
+                                     <tr class="{{ 'table-danger' if has_sub_error else '' }}">
+                                         <td><code>{{ exchange.get('exchange_label', 'N/A') }}</code></td>
+                                         <td>
+                                             <span class="badge bg-{{ 'info' if exchange.get('type') == 'auto' else 'warning' }}-subtle text-emphasis-{{ 'info' if exchange.get('type') == 'auto' else 'warning' }} rounded-pill">
+                                                 {{ exchange.get('type', 'N/A') | capitalize }}
+                                             </span>
+                                         </td>
+                                         <td>{{ "%.3f"|format(exchange.get('start_time', 0)) }}</td>
+                                         <td>{{ "%.3f"|format(exchange.get('end_time', 0)) }}</td>
+                                         <td>{{ "%.1f"|format(exchange.get('end_time', 0) - exchange.get('start_time', 0)) }}s</td>
+                                         <td>
+                                             <span class="badge rounded-pill status-{{ diar_status | lower }} p-1">{{ diar_status }}</span>
+                                             {% if exchange.get('diarization_error_message') %}
+                                                 <i class="bi bi-exclamation-triangle-fill text-danger ms-1" title="{{ exchange.get('diarization_error_message') }}"></i>
+                                             {% endif %}
+                                         </td>
+                                          <td>
+                                             <span class="badge rounded-pill status-{{ def_status | lower }} p-1">{{ def_status }}</span>
+                                             {% if exchange.get('clip_definition_error_message') %}
+                                                 <i class="bi bi-exclamation-triangle-fill text-danger ms-1" title="{{ exchange.get('clip_definition_error_message') }}"></i>
+                                             {% endif %}
+                                         </td>
+                                          <td>
+                                             <span class="badge rounded-pill status-{{ cut_status | lower }} p-1">{{ cut_status }}</span>
+                                             {% if exchange.get('clip_cutting_error_message') %}
+                                                 <i class="bi bi-exclamation-triangle-fill text-danger ms-1" title="{{ exchange.get('clip_cutting_error_message') }}"></i>
+                                             {% endif %}
+                                         </td>
+                                         <td class="action-buttons"> {# Buttons to trigger substeps #}
+                                             <button class="btn btn-primary btn-sm" {# Added btn-sm #}
+                                                     data-action="process_diarization"
+                                                     data-exchange-id="{{ exchange.get('id') }}"
+                                                     title="Process Diarization Segment"
+                                                     {# Check parent video's FULL diarization status AND this exchange's current status #}
+                                                     {% if video.get('diarization_status') != 'Complete' or diar_status in ['Running', 'Queued'] %}disabled{% endif %}>
+                                                 <i class="bi bi-people"></i>
+                                             </button>
+                                              <button class="btn btn-primary btn-sm" {# Added btn-sm #}
+                                                     data-action="define_clips"
+                                                     data-exchange-id="{{ exchange.get('id') }}"
+                                                     title="Define Short Clips"
+                                                     {% if diar_status != 'Complete' or def_status in ['Running', 'Queued'] %}disabled{% endif %}>
+                                                 <i class="bi bi-list-task"></i>
+                                             </button>
+                                              <button class="btn btn-primary btn-sm" {# Added btn-sm #}
+                                                     data-action="cut_clips"
+                                                     data-exchange-id="{{ exchange.get('id') }}"
+                                                     title="Cut Short Clips"
+                                                     {% if def_status != 'Complete' or cut_status in ['Running', 'Queued'] %}disabled{% endif %}>
+                                                 <i class="bi bi-scissors"></i>
+                                             </button>
+                                             <span class="substep-status-display"></span> {# Status display for AJAX #}
+                                         </td>
+                                     </tr>
+                                 {% endfor %}
+                                 </tbody>
+                             </table>
+                         </div>
+                     {% else %}
+                         <p class="text-center my-3 text-muted">No exchanges identified or marked yet.</p>
+                     {% endif %}
+                 </div>
+            </div>
+        </div>
+
+        {# --- Generated Clips List --- #}
+        <div class="accordion-item">
+             <h2 class="accordion-header" id="headingGeneratedClips">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseGeneratedClips" aria-expanded="false" aria-controls="collapseGeneratedClips">
+                     <i class="bi bi-camera-reels me-2"></i> View Generated Short Clips ({{ generated_clips | length }})
+                 </button>
+             </h2>
+             <div id="collapseGeneratedClips" class="accordion-collapse collapse" aria-labelledby="headingGeneratedClips">
+                 <div class="accordion-body">
+                     <ul id="generated-clips-list" class="list-group list-group-flush">
+                          {% if generated_clips and generated_clips is iterable and not generated_clips is string %}
+                              {% for clip_path in generated_clips | sort(reverse=True) %}
+                                 {% set relative_clip_path = clip_path | replace(config.PROCESSED_CLIPS_DIR ~ '/', '') | replace('\\', '/') %}
+                                 <li class="list-group-item d-flex justify-content-between align-items-center bg-transparent list-group-item-action">
+                                     <span>
+                                         <i class="bi bi-play-circle me-2"></i>{{ clip_path | basename }}
+                                         <a href="{{ url_for('serve_clip', filename=relative_clip_path) }}" target="_blank" class="ms-2 link-secondary" title="Open/Play Clip">
+                                            <i class="bi bi-box-arrow-up-right"></i>
+                                        </a>
+                                        <small class="text-muted ms-2 d-block d-md-inline">({{ (clip_path | dirname | basename) }})</small>
+                                     </span>
+                                 </li>
+                              {% else %}
+                                  <li class="list-group-item text-body-secondary bg-transparent" id="no-clips-yet">No short clips generated yet for this video.</li>
+                              {% endfor %}
+                          {% else %}
+                              <li class="list-group-item text-body-secondary bg-transparent" id="no-clips-yet">Generated clips information not available or empty.</li>
+                          {% endif %}
+                      </ul>
+                 </div>
+             </div>
+         </div>
+
+         {# --- Full Transcript --- #}
+         <div class="accordion-item">
+            <h2 class="accordion-header" id="headingTranscript">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTranscript" aria-expanded="false" aria-controls="collapseTranscript">
+                     <i class="bi bi-file-text me-2"></i> Full Transcript
+                 </button>
+            </h2>
+            <div id="collapseTranscript" class="accordion-collapse collapse" aria-labelledby="headingTranscript">
+                 <div class="accordion-body" style="max-height: 70vh; overflow-y: auto;">
+                      <small class="text-muted d-block mb-2">Click transcript segments to select start/end for manual exchange marking.</small>
+                      {% if transcript_data and transcript_data is iterable and not transcript_data is string %}
+                         <div class="transcript-display">
+                         {%- for seg in transcript_data -%}
+                             <div class="transcript-segment" data-start="{{ seg.get('start') }}" data-end="{{ seg.get('end') }}"> {# Use .get() #}
+                                 <span class="transcript-timestamp">[{{ "%7.3f"|format(seg.get('start', 0)) }}s]</span> {# Use .get() #}
+                                 <span class="transcript-text">{{ seg.get('text', '').strip() }}</span> {# Use .get() #}
+                             </div>
+                         {%- endfor -%}
+                         </div>
+                      {% elif video.get('transcript_status') == 'Complete' %} {# Use .get() #}
+                         <p class="text-body-secondary">Transcript data is empty or failed to load.</p>
+                      {% else %}
+                          <p class="text-body-secondary">Transcript will appear here after the 'Transcribe' step completes.</p>
+                      {% endif %}
+                 </div>
+            </div>
+        </div>
+         {# --- Full Diarization Result (Optional Display) --- #}
+         {# Consider adding a similar accordion item to display `full_diarization_data` #}
+
+    </div> {# End Accordion #}
+
+    {# --- Action Buttons --- #}
+    <div class="mt-4 border rounded p-3 bg-body-tertiary">
+        <h5 class="mb-3"><i class="bi bi-trash"></i> Job Management</h5>
+        <div class="d-flex justify-content-end">
+             <div class="action-group">
+                 <form action="{{ url_for('delete_videos') }}" method="POST" class="d-inline-block">
+                     <input type="hidden" name="selected_videos" value="{{ video.get('id') }}">
+                     <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Are you sure you want to delete this video record and all associated data/files?\n\nThis action cannot be undone.');">
+                         <i class="bi bi-trash"></i> Delete This Job
+                     </button>
+                 </form>
+            </div>
+        </div>
+    </div> {# End Action Buttons container #}
+
+    {% else %} {# If video object itself was not found #}
+    <div class="alert alert-danger" role="alert"> <h4 class="alert-heading">Error</h4> Video details not found for ID {{ video_id }}.</div>
+    <a href="{{ url_for('index') }}" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> Back to List</a>
+    {% endif %}
+
+</div> {# End container #}
+{% endblock %}
+
+{% block scripts %}
+{# Add JS for transcript interaction #}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const transcriptDisplay = document.querySelector('.transcript-display');
+    const manualStartTimeInput = document.getElementById('manualStartTime');
+    const manualEndTimeInput = document.getElementById('manualEndTime');
+    let selectedStartSegment = null;
+    let selectedEndSegment = null;
+
+    if (transcriptDisplay && manualStartTimeInput && manualEndTimeInput) {
+        transcriptDisplay.addEventListener('click', function(event) {
+            const segment = event.target.closest('.transcript-segment');
+            if (!segment) return;
+
+            const startTime = parseFloat(segment.getAttribute('data-start'));
+            const endTime = parseFloat(segment.getAttribute('data-end'));
+
+            // Basic check for valid times
+            if (isNaN(startTime) || isNaN(endTime)) return;
+
+            // Simple toggle logic: first click sets start, second sets end
+            if (!selectedStartSegment || (selectedStartSegment && selectedEndSegment)) {
+                 // Reset or first click
+                 if (selectedStartSegment) selectedStartSegment.classList.remove('selected-start');
+                 if (selectedEndSegment) selectedEndSegment.classList.remove('selected-end');
+
+                 selectedStartSegment = segment;
+                 selectedEndSegment = null;
+                 selectedStartSegment.classList.add('selected-start');
+                 manualStartTimeInput.value = startTime.toFixed(3);
+                 manualEndTimeInput.value = ''; // Clear end time
+            } else if (selectedStartSegment && !selectedEndSegment) {
+                 // Second click sets end time
+                 // Ensure end time is after start time
+                 if (startTime >= parseFloat(manualStartTimeInput.value)) {
+                      selectedEndSegment = segment;
+                      selectedEndSegment.classList.add('selected-end');
+                      // Use the END time of the clicked segment for the exchange end
+                      manualEndTimeInput.value = endTime.toFixed(3);
+                 } else {
+                      console.log("End segment click ignored (before start segment).");
+                 }
+            }
+        });
+    }
+});
+</script>
+{% endblock %}
+{# --- END OF FILE: templates/video_details.html --- #}

@@ -1,0 +1,184 @@
+/* --- Start of File: static/css/style.css --- */
+
+/* === Core Layout & Theme === */
+html[data-bs-theme="dark"] body {
+    background-color: var(--bs-dark-bg-subtle); /* Slightly lighter dark bg */
+}
+
+body {
+    padding-top: 60px; /* Adjust based on actual navbar height */
+    padding-bottom: 60px; /* Footer padding */
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+main.container {
+    flex-grow: 1; /* Allow main content area to grow */
+}
+
+footer {
+    font-size: 0.9em;
+    background-color: var(--bs-dark-bg-subtle); /* Match body */
+}
+
+/* === Table Enhancements === */
+.table {
+    vertical-align: middle;
+}
+.table th {
+    font-weight: 600;
+}
+.table-hover tbody tr:hover {
+     background-color: rgba(var(--bs-emphasis-color-rgb), 0.075);
+}
+.table td input[type="checkbox"] {
+    margin-top: 0.2rem;
+}
+
+/* === Granular Status Badges (Subtle Backgrounds) === */
+.status-complete { background-color: var(--bs-success-bg-subtle) !important; color: var(--bs-success-text-emphasis) !important; border: 1px solid var(--bs-success-border-subtle); }
+.status-running { background-color: var(--bs-info-bg-subtle) !important; color: var(--bs-info-text-emphasis) !important; border: 1px solid var(--bs-info-border-subtle); }
+.status-queued { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-secondary-text-emphasis) !important; border: 1px solid var(--bs-secondary-border-subtle); }
+.status-pending { background-color: var(--bs-light-bg-subtle) !important; color: var(--bs-body-color) !important; border: 1px solid var(--bs-border-color-translucent); }
+.status-error { background-color: var(--bs-danger-bg-subtle) !important; color: var(--bs-danger-text-emphasis) !important; border: 1px solid var(--bs-danger-border-subtle); }
+.status-skipped { background-color: var(--bs-warning-bg-subtle) !important; color: var(--bs-warning-text-emphasis) !important; border: 1px solid var(--bs-warning-border-subtle); }
+.status-ready { background-color: var(--bs-primary-bg-subtle) !important; color: var(--bs-primary-text-emphasis) !important; border: 1px solid var(--bs-primary-border-subtle); } /* For index 'Ready' status */
+.status-processing { background-color: var(--bs-info-bg-subtle) !important; color: var(--bs-info-text-emphasis) !important; border: 1px solid var(--bs-info-border-subtle); } /* Alias for index 'Processing' status */
+.status-unknown { background-color: var(--bs-secondary-bg-subtle) !important; color: var(--bs-secondary-text-emphasis) !important; border: 1px solid var(--bs-secondary-border-subtle); opacity: 0.7; }
+
+
+/* --- Processing Status Text (Index Page) --- */
+.processing-status {
+    font-size: 0.85rem;
+    font-style: italic;
+    opacity: 0.8;
+}
+
+/* --- Pipeline Control Panel Styling --- */
+#pipelineControlPanel .list-group-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 1rem; /* Adjust padding */
+    gap: 1rem; /* Space between elements */
+    background-color: transparent; /* Ensure it fits with card body */
+    border-bottom: 1px solid var(--bs-border-color-translucent) !important; /* Override BS styles */
+}
+#pipelineControlPanel .list-group-item:last-child {
+    border-bottom: none !important;
+}
+#pipelineControlPanel .step-label {
+    font-weight: 500;
+    flex-basis: 150px; /* Give label some minimum width */
+    flex-shrink: 0;
+}
+#pipelineControlPanel .step-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 150px; /* Ensure status badge + timestamp fit */
+    justify-content: flex-start; /* Align left within its space */
+    flex-grow: 1; /* Allow status to take up middle space */
+}
+#pipelineControlPanel .status-badge { /* Generic class for status badges in panel */
+     font-size: 0.8em;
+     padding: 0.3em 0.6em;
+}
+#pipelineControlPanel .status-timestamp {
+    font-size: 0.75em;
+    color: var(--bs-secondary-color);
+    white-space: nowrap;
+}
+#pipelineControlPanel .step-actions {
+   text-align: right;
+   flex-basis: 100px; /* Fixed width for action button(s) */
+   flex-shrink: 0;
+}
+#pipelineControlPanel .step-actions button {
+    font-size: 0.85em;
+    padding: 0.25rem 0.5rem;
+}
+
+/* --- Exchange Table Styling --- */
+.exchange-table th, .exchange-table td {
+    vertical-align: middle;
+}
+.exchange-table .form-check-input {
+    margin-top: 0; /* Align checkbox */
+}
+.exchange-table .substep-status-display {
+    font-size: 0.8em;
+    margin-left: 0.3rem;
+    vertical-align: middle;
+}
+.exchange-table .action-buttons button {
+    font-size: 0.75em;
+    padding: 0.2rem 0.4rem;
+    margin-right: 0.2rem;
+}
+
+/* --- Error Message Box Styling --- */
+.error-message pre, pre.error-message { /* Target pre tags with the class */
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 250px;
+    overflow-y: auto;
+    background-color: rgba(var(--bs-danger-rgb), 0.1); /* More subtle red background */
+    border: 1px solid rgba(var(--bs-danger-rgb), 0.3);
+    padding: 0.75rem;
+    border-radius: var(--bs-border-radius);
+    color: var(--bs-danger-text-emphasis);
+    font-size: 0.85em;
+    margin-bottom: 0; /* Remove default margin if needed */
+}
+
+/* --- Transcript Interaction (Basic Placeholder) --- */
+.transcript-segment {
+    padding: 3px 5px; /* Slightly more padding */
+    margin-bottom: 2px; /* Space between segments */
+    cursor: pointer;
+    border-left: 3px solid transparent;
+    transition: background-color 0.15s ease-in-out, border-left-color 0.15s ease-in-out;
+    border-radius: 2px; /* Subtle rounding */
+    line-height: 1.4;
+}
+.transcript-segment:hover {
+    background-color: rgba(var(--bs-emphasis-color-rgb), 0.07);
+    border-left-color: var(--bs-info);
+}
+.transcript-segment.selected-start {
+     border-left-color: var(--bs-success);
+     background-color: rgba(var(--bs-success-rgb), 0.15);
+     font-weight: bold;
+}
+.transcript-segment.selected-end {
+      border-left-color: var(--bs-danger);
+     background-color: rgba(var(--bs-danger-rgb), 0.15);
+     font-weight: bold;
+}
+.transcript-timestamp {
+    font-family: monospace;
+    font-size: 0.9em;
+    color: var(--bs-info-text-emphasis); /* Or a different color */
+    margin-right: 0.5em;
+    opacity: 0.8;
+}
+
+/* --- Manual Controls Styling --- */
+.manual-control-group {
+     padding: 0.75rem;
+     background-color: var(--bs-secondary-bg); /* Differentiate area */
+     border-radius: var(--bs-border-radius);
+}
+.manual-control-group input[type="number"] {
+     width: 90px;
+}
+
+
+/* --- Spinner alignment --- */
+.spinner-border-sm {
+    vertical-align: -0.125em;
+}
+
+/* --- END OF FILE: static/css/style.css --- */

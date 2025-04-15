@@ -1,0 +1,33 @@
+# --- Start of File: requirements.txt ---
+
+# Core Flask & Web Serving
+Flask>=2.0
+python-dotenv>=1.0.0
+Werkzeug # Usually installed with Flask, needed for file serving utils
+waitress # Recommended WSGI server for Windows/Cross-platform
+celery>=5.0  # <<< ADDED for background tasks
+redis>=4.0   # <<< ADDED for Celery broker/backend
+
+# Video/Audio Download & Processing
+yt-dlp
+# ffmpeg-python>=0.2.0 # Wrapper for programmatic ffmpeg control - Keeping commented as direct subprocess is used
+
+# AI/ML - Transcription & Diarization
+# Check compatibility matrix if issues arise: https://github.com/pyannote/pyannote-audio
+torch>=1.10,<2.2 # Pin torch version based on pyannote compatibility (adjust as needed)
+torchaudio>=0.10,<2.2 # Match torch version
+torchvision>=0.11,<0.17 # Match torch version
+numpy<2.0 # Pin numpy due to potential breaking changes affecting dependencies like pyannote
+faster-whisper>=0.9.0 # Fast Whisper implementation
+pyannote.audio>=2.1,<3.2 # Check docs for version compatible with torch. Using <3.2 based on past experience. >=3.0 often requires Pytorch 2+.
+huggingface_hub>=0.14.0 # For model downloads
+
+# Optional NLP/Audio Utils (Add if features implemented)
+# soundfile # If doing advanced audio loading/saving
+# librosa # For advanced audio analysis (e.g., silence detection)
+# nltk # For VADER sentiment analysis (used in Project One Q&A) - Requires separate lexicon download
+# spacy # For advanced NLP (e.g., better Q&A detection) - Requires model download
+
+# Other Utilities
+# pandas # Often useful for data handling if results get complex
+# --- END OF FILE: requirements.txt ---

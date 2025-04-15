@@ -1,0 +1,64 @@
+# --- Start of File: templates/error_log.html ---
+{% extends "base.html" %}
+{% block title %}Processing Error Log{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+         <h1 class="h3 mb-0"><i class="bi bi-exclamation-triangle-fill text-danger me-2"></i>Processing Error Log</h1>
+         <a href="{{ url_for('index') }}" class="btn btn-sm btn-secondary">
+            <i class="bi bi-arrow-left"></i> Back to Home
+        </a>
+     </div>
+
+    {% if error_videos %}
+     <p>Showing videos that have encountered an error during processing. Check details page for granular error info and re-run options.</p>
+    <div class="table-responsive mt-3">
+        <table class="table table-striped table-hover table-bordered">
+            <thead class="table-light">
+                <tr>
+                    <th>ID</th>
+                    <th>Title</th>
+                    <th style="width: 15%;">First Failed Step</th> {# Updated Header #}
+                    <th>Error Snippet</th>
+                    <th>Last Updated</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for video in error_videos %}
+                <tr class="table-danger"> {# Highlight rows as error #}
+                    <td>{{ video.id }}</td>
+                    <td style="word-break: break-word;">
+                        <a href="{{ url_for('video_details', video_id=video.id) }}" title="View details for {{ video.title | default('N/A') }}">{{ video.title | default('N/A') | truncate(70) }}</a>
+                    </td>
+                     {# Display the first error step identified by the backend #}
+                     <td><span class="badge status-error">{{ video.first_error_step | default('Error') }}</span></td>
+                    <td style="max-width: 350px;">
+                        {# Display the first error message snippet #}
+                        <pre title="{{ video.first_error_message | default('') }}" style="white-space: pre-wrap; word-break: break-word; margin: 0; font-size: 0.85em; max-height: 100px; overflow-y: auto;">{{ video.first_error_message | default('No specific error message recorded.') | truncate(200) }}</pre>
+                         <a href="{{ url_for('video_details', video_id=video.id) }}#pipelineControlPanel" class="small text-danger-emphasis">(View Step Details)</a> {# Link to panel #}
+                    </td>
+                    <td title="{{ video.updated_at | datetimeformat('%Y-%m-%d %H:%M:%S') }}">
+                        {{ video.updated_at | datetimeformat }}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('video_details', video_id=video.id) }}" class="btn btn-sm btn-outline-primary" title="View Details & Actions">
+                             <i class="bi bi-info-circle"></i> Details
+                        </a>
+                        {# Consider removing retry from here, keep actions on details page #}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+     {% else %}
+      <div class="alert alert-success mt-4 text-center" role="alert">
+        <i class="bi bi-check-circle-fill me-2"></i>No videos currently have processing errors recorded. Hooray!
+      </div>
+     {% endif %}
+
+</div>
+{% endblock %}
+# --- END OF FILE: templates/error_log.html ---

@@ -1,0 +1,178 @@
+{# --- Start of File: templates/index.html --- #}
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Video Processor{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card shadow-sm mb-4">
+             <div class="card-header bg-primary text-white">
+                <h2 class="h5 mb-0"><i class="bi bi-plus-circle"></i> Submit New Videos for Download</h2>
+            </div>
+            <div class="card-body">
+                <form id="addVideosForm" action="{{ url_for('index') }}" method="POST">
+                    <div class="mb-3">
+                        <label for="youtube_urls" class="form-label">YouTube URLs (one per line):</label>
+                        <textarea class="form-control" id="youtube_urls" name="urls" rows="5" required placeholder="e.g., https://www.youtube.com/watch?v=dQw4w9WgXcQ"></textarea>
+                    </div>
+                     <div class="mb-3">
+                        <label for="resolution" class="form-label">Select Download Resolution:</label>
+                        <select class="form-select" id="resolution" name="resolution">
+                            <option value="480p" selected>480p (Fastest, Recommended)</option>
+                            <option value="720p">720p (HD)</option>
+                            <option value="1080p">1080p (Full HD)</option>
+                            <option value="best">Best Available (MP4 Preferred)</option>
+                        </select>
+                    </div>
+                    <button type="submit" id="addVideosButton" class="btn btn-primary">
+                        <i class="bi bi-upload"></i> Add & Start Download
+                    </button>
+                    <span id="loadingSpinnerSubmit" class="spinner-border spinner-border-sm ms-2 align-middle" role="status" aria-hidden="true" style="display: none;"></span>
+                    <small class="d-block mt-2 text-muted">Adds videos to queue and starts the download step automatically.</small>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<hr class="my-4">
+
+<div class="row">
+    <div class="col-md-12">
+         <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h4"><i class="bi bi-list-task"></i> Processing Queue & History</h2>
+             {# Queue/Active counts removed as SSE handles dynamic updates better #}
+         </div>
+        <p class="text-muted"><small>Status updates automatically <i class="bi bi-arrow-repeat text-success"></i> (Live updates via SSE).</small></p>
+
+        <form id="deleteVideosForm" method="POST" action="{{ url_for('delete_videos') }}">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover table-bordered">
+                     <thead class="table-light">
+                        <tr>
+                            <th style="width: 3%;"><input class="form-check-input" type="checkbox" id="selectAll" title="Select/Deselect All"></th>
+                            <th style="width: 30%;">Title</th>
+                            <th style="width: 8%;">Resolution</th>
+                            <th style="width: 10%;">Overall Status</th> {# Simplified Column Header #}
+                            <th style="width: 15%;">Current Step / State</th> {# Simplified Column Header #}
+                            <th style="width: 12%;">Submitted</th>
+                            <th style="width: 12%;">Last Update</th>
+                            <th style="width: 10%;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for video in videos %}
+                        {# --- Jinja logic to determine overall status for index page --- #}
+                        {% set granular_statuses = [
+                            video.download_status, video.audio_status, video.transcript_status,
+                            video.diarization_status, video.exchange_id_status
+                        ] %}
+                        {% set granular_errors = [
+                            video.download_error_message, video.audio_error_message, video.transcript_error_message,
+                            video.diarization_error_message, video.exchange_id_error_message
+                        ] %}
+
+                        {% set has_error = granular_statuses | select('equalto', 'Error') | list | length > 0 %}
+                        {% set is_running = granular_statuses | select('equalto', 'Running') | list | length > 0 %}
+                        {% set is_queued = granular_statuses | select('equalto', 'Queued') | list | length > 0 %}
+                        {% set is_pending = granular_statuses | select('equalto', 'Pending') | list | length > 0 %}
+                        {% set is_complete = granular_statuses | select('equalto', 'Complete') | list | length == granular_statuses | length %} {# Check if ALL steps are Complete #}
+
+                        {% set overall_status = 'Unknown' %}
+                        {% set current_step_display = 'Idle' %}
+
+                        {% if has_error %}
+                            {% set overall_status = 'Error' %}
+                            {% set error_step = 'Unknown Error' %}
+                            {% if video.download_status == 'Error' %}{% set error_step = 'Download Failed' %}
+                            {% elif video.audio_status == 'Error' %}{% set error_step = 'Audio Ext. Failed' %}
+                            {% elif video.transcript_status == 'Error' %}{% set error_step = 'Transcript Failed' %}
+                            {% elif video.diarization_status == 'Error' %}{% set error_step = 'Diarization Failed' %}
+                            {% elif video.exchange_id_status == 'Error' %}{% set error_step = 'Exchange ID Failed' %}
+                            {% endif %}
+                            {% set current_step_display = error_step %}
+                        {% elif is_running %}
+                            {% set overall_status = 'Processing' %}
+                            {% set running_step = 'Processing...' %}
+                            {% if video.download_status == 'Running' %}{% set running_step = 'Downloading...' %}
+                            {% elif video.audio_status == 'Running' %}{% set running_step = 'Extracting Audio...' %}
+                            {% elif video.transcript_status == 'Running' %}{% set running_step = 'Transcribing...' %}
+                            {% elif video.diarization_status == 'Running' %}{% set running_step = 'Diarizing...' %}
+                            {% elif video.exchange_id_status == 'Running' %}{% set running_step = 'Finding Exchanges...' %}
+                            {% endif %}
+                            {% set current_step_display = running_step %}
+                        {% elif is_queued %}
+                            {% set overall_status = 'Queued' %}
+                            {% set current_step_display = 'Queued' %}
+                        {% elif is_complete %}
+                            {% set overall_status = 'Complete' %}
+                            {% set current_step_display = 'All Steps Complete' %}
+                        {% elif video.download_status == 'Complete' %} {# If download is done but others pending/complete #}
+                            {% set overall_status = 'Ready' %} {# Ready for next step #}
+                            {% set current_step_display = 'Ready for Analysis' %}
+                        {% else %} {# Default if nothing else matches (likely Pending) #}
+                            {% set overall_status = 'Pending' %}
+                            {% set current_step_display = 'Pending Download' %}
+                        {% endif %}
+                        {# --- End Jinja logic --- #}
+
+                        <tr class="{{ 'table-danger' if has_error else ('table-success' if overall_status == 'Complete' else ('table-info' if overall_status == 'Ready' else '')) }}" data-video-id="{{ video.id }}">
+                            <td><input class="form-check-input video-checkbox" type="checkbox" name="selected_videos" value="{{ video.id }}"></td>
+                            <td style="word-break: break-word;">
+                                <a href="{{ url_for('video_details', video_id=video.id) }}" title="View details for {{ video.title | default('N/A') }}">{{ video.title | default('N/A') | truncate(70) }}</a>
+                                <a href="{{ video.youtube_url }}" target="_blank" title="Open on YouTube" class="ms-1 text-muted"><i class="bi bi-youtube"></i></a>
+                                {% if has_error %} {# Simplified error display for index #}
+                                <div class="mt-1 text-danger" style="font-size: 0.8em;">
+                                     <i class="bi bi-exclamation-circle"></i> Error in: {{ current_step_display }}
+                                     (<a href="{{ url_for('video_details', video_id=video.id) }}" class="text-danger">details</a>)
+                                </div>
+                                {% endif %}
+                            </td>
+                            <td><span class="badge bg-secondary">{{ video.resolution | default('N/A') }}</span></td>
+                            <td class="text-center" id="status-cell-{{ video.id }}">
+                                <span class="badge rounded-pill status-{{ overall_status | lower }}">
+                                    {{ overall_status }}
+                                </span>
+                            </td>
+                            <td id="step-cell-{{ video.id }}">
+                                <span class="processing-status" title="{{ current_step_display }}">
+                                    {{ current_step_display | truncate(30) }}
+                                 </span>
+                             </td>
+                             <td title="{{ video.created_at | datetimeformat('%Y-%m-%d %H:%M:%S') }}">
+                                {{ video.created_at | datetimeformat }}
+                            </td>
+                            <td id="updated-cell-{{ video.id }}" title="{{ video.updated_at | datetimeformat('%Y-%m-%d %H:%M:%S') }}">
+                                {{ video.updated_at | datetimeformat('%H:%M:%S') }} {# Use short format #}
+                            </td>
+                             <td> {# Actions #}
+                                <a href="{{ url_for('video_details', video_id=video.id) }}" class="btn btn-sm btn-outline-primary" title="View Details">
+                                     <i class="bi bi-info-circle"></i> Details
+                                </a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="8" class="text-center text-muted py-4">No videos submitted yet.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+             <div class="mt-3">
+                 <button type="submit" class="btn btn-danger" id="deleteSelectedButton" disabled onclick="return confirm('Are you sure you want to delete the selected video records and ALL associated data/files? This cannot be undone.');">
+                     <i class="bi bi-trash"></i> Delete Selected
+                 </button>
+             </div>
+        </form>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{# Script content moved to static/js/app.js, included in base.html #}
+{% endblock %}
+{# --- END OF FILE: templates/index.html --- #}

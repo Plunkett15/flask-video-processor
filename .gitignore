@@ -1,0 +1,42 @@
+# --- Start of File: .gitignore ---
+
+# Python Virtual Environments
+venv/
+env/
+.*/
+*.env
+
+# Python Cache & Compiled Files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE / Editor Settings
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Runtime Instance Data (IMPORTANT)
+instance/
+
+# Downloaded Videos & Temp Files (IMPORTANT)
+downloads/
+
+# Generated Clips (IMPORTANT)
+processed_clips/
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Environment Variables File (IMPORTANT - Never commit secrets)
+.env
+
+# Celery Beat Schedule File (if used)
+celerybeat-schedule
+
+# --- END OF FILE: .gitignore ---
