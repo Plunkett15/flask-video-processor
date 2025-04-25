@@ -1,6 +1,6 @@
-# Flask Video Processing Pipeline 🎬
+# Flask Video Processing Pipeline 🎬 (Granular Workflow)
 
-This Flask web application provides a user interface to download YouTube videos, process them through an analysis pipeline (transcription, speaker diarization), and generate short video clips based on the analysis results.
+This Flask web application provides a user interface to download YouTube videos and process them through a multi-stage analysis pipeline (audio extraction, transcription, speaker diarization, exchange identification) using Celery for background task management. Users can then trigger further analysis on identified exchanges and generate short video clips.
 
 It combines the power of:
 *   **yt-dlp:** For reliable video downloading.
@@ -8,170 +8,190 @@ It combines the power of:
 *   **Pyannote.audio:** For speaker diarization (identifying who spoke when).
 *   **FFmpeg:** For audio extraction and video clip generation.
 *   **Flask:** As the web framework.
+*   **Celery & Redis:** For robust background task queuing and execution.
 *   **SQLite:** For database storage of job information and results.
 *   **Waitress:** As the production WSGI server.
 
-The application uses a background worker queue to process videos sequentially, preventing the web server from blocking during potentially long-running analysis tasks.
-
-## ✨ Key Features
+## ✨ Key Features (Granular Workflow)
 
 *   **Submit YouTube URLs:** Queue single or multiple YouTube videos for processing via a simple web form.
-*   **Select Resolution:** Choose the desired video download resolution (e.g., 480p, 720p, best).
-*   **Background Processing:** Jobs are added to a queue and processed one by one in the background.
-*   **Status Tracking:** Monitor the status (Pending, Queued, Downloading, Processing, Processed, Error) and the current processing step for each job.
+*   **Select Resolution:** Choose the desired video download resolution.
+*   **Background Processing (Celery):** Jobs are added to a Redis queue and processed by Celery workers.
+*   **Granular Pipeline Control:**
+    *   Trigger individual processing steps (Download, Audio Extract, Transcribe, Diarize, Identify Exchanges) for each video.
+    *   Trigger sub-steps (Process Diarization, Define Clips, Cut Clips) for each identified exchange (Auto or Manual).
+*   **Status Tracking:** Monitor the status of each granular step via the UI, updated in near real-time using Server-Sent Events (SSE).
 *   **Detailed View:** Access a dedicated page for each video showing:
-    *   Basic job information (URL, Title, Status).
-    *   Combined analysis results: Segments tagged with speaker, text, timing, and potential type.
-    *   Raw transcript.
-    *   Speaker turn details.
-    *   Error messages if processing failed.
-*   **Clip Generation:** Identify segments suitable for short clips (based on duration) and generate MP4 clips with a single click from the details page.
-*   **Generated Clips List:** View and access previously generated clips for a video.
+    *   Overall job status and metadata.
+    *   Detailed status for each processing step.
+    *   A control panel to trigger/re-run steps.
+    *   A table to manage identified exchanges (Auto-detected via speaker changes/questions, or Manually marked).
+    *   Controls to process individual exchanges.
+    *   Full transcript display with speaker information (once aligned).
+    *   List of generated short clips.
+    *   Error messages if processing failed at any step.
+*   **Exchange Identification:** Automatically identifies potential conversation exchanges based on speaker changes and simple question detection rules.
+*   **Manual Exchange Marking:** Manually define start/end times for exchanges directly on the details page.
+*   **Clip Generation:** Generate short MP4 clips corresponding to identified speaker segments within processed exchanges.
+*   **Job Deletion:** Select and delete jobs (including their database records and associated local files).
 *   **Error Log:** A dedicated page lists all jobs that encountered errors during processing.
-*   **Job Deletion:** Select and delete jobs (including their database records and associated local files) from the main dashboard.
 
 ## ⚙️ Prerequisites
 
 Before you begin, ensure you have the following installed:
 
-1.  **Python:** Version 3.8 or higher recommended.
-2.  **pip:** Python package installer (usually comes with Python).
-3.  **FFmpeg & ffprobe:**
-    *   These are essential for audio extraction and video clipping.
-    *   Download from the official FFmpeg website: [https://ffmpeg.org/download.html](https://ffmpeg.org/download.html)
-    *   Ensure the `ffmpeg` and `ffprobe` executables are either in your system's `PATH` environment variable **OR** configure the full path in the `.env` file (see Configuration below).
-4.  **Git:** (Optional, but recommended for cloning).
-5.  **Hugging Face Account & Token:**
-    *   Speaker diarization using Pyannote requires models hosted on Hugging Face Hub.
-    *   Create an account: [https://huggingface.co/join](https://huggingface.co/join)
-    *   Generate a User Access Token (read permissions are sufficient): [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
-    *   You will need this token for the `.env` configuration.
-    *   **IMPORTANT:** You might also need to visit the specific Pyannote model pages (e.g., [pyannote/speaker-diarization](https://huggingface.co/pyannote/speaker-diarization-3.1) - check the version used in `.env`) on Hugging Face while logged in and **accept their terms of service** before the model can be downloaded via the token.
+1.  **Python:** Version 3.9 or higher recommended.
+2.  **pip:** Python package installer.
+3.  **Redis:**
+    *   Required for Celery message broker and result backend.
+    *   Install Redis locally or use a cloud service. Ensure it's running before starting Celery workers.
+    *   Download/Instructions: [https://redis.io/docs/getting-started/installation/](https://redis.io/docs/getting-started/installation/)
+4.  **FFmpeg & ffprobe:**
+    *   Essential for audio extraction and video clipping.
+    *   Download: [https://ffmpeg.org/download.html](https://ffmpeg.org/download.html)
+    *   Ensure `ffmpeg` and `ffprobe` executables are in your system's `PATH` or configure the full path in `.env`.
+5.  **Git:** (Optional, for cloning).
+6.  **Hugging Face Account & Token:**
+    *   Required for Pyannote speaker diarization models.
+    *   Create account: [https://huggingface.co/join](https://huggingface.co/join)
+    *   Generate Token (read access): [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
+    *   You **must** accept the terms of service for the specific Pyannote models used (check `.env` or `config.py` defaults, e.g., `pyannote/speaker-diarization-3.1`) on the Hugging Face website while logged in.
 
 ## 🚀 Installation & Setup
 
 1.  **Clone the Repository:**
     ```bash
-    git clone <your-repository-url> your_merged_project
-    cd your_merged_project
+    git clone <your-repository-url> granular_video_processor
+    cd granular_video_processor
     ```
-    (Or download and extract the source code manually).
 
 2.  **Create a Virtual Environment:** (Recommended)
     ```bash
     python -m venv venv
-    # Activate the environment:
-    # Windows:
-    .\venv\Scripts\activate
-    # macOS/Linux:
-    source venv/bin/activate
+    # Activate:
+    # Windows: .\venv\Scripts\activate
+    # macOS/Linux: source venv/bin/activate
     ```
 
 3.  **Install Dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
-    *Note: This step can take a while, especially downloading PyTorch and related libraries. Ensure you have a stable internet connection.*
+    *(This can take time, especially for PyTorch and related libraries).*
 
 4.  **Configure Environment Variables:**
-    *   Copy the example environment file:
+    *   Copy `.env.example` to `.env`:
         ```bash
         cp .env.example .env
         ```
-    *   **Edit the `.env` file:** Open the newly created `.env` file in a text editor.
-    *   **REQUIRED:**
-        *   Set `FLASK_SECRET_KEY`: Generate a strong random key (e.g., run `python -c 'import secrets; print(secrets.token_hex(24))'` in your terminal) and paste it here.
-        *   Set `HUGGING_FACE_TOKEN`: Paste the Hugging Face User Access Token you generated.
-    *   **Optional (Check Paths):**
-        *   Verify/set `FFMPEG_PATH` if `ffmpeg`/`ffprobe` are not in your system PATH.
-        *   Review default `DATABASE_PATH`, `DOWNLOAD_DIR`, `PROCESSED_CLIPS_DIR` and adjust if necessary (defaults usually work).
-        *   Review default ML model settings (`FASTER_WHISPER_MODEL`, `FASTER_WHISPER_COMPUTE_TYPE`, `PYANNOTE_PIPELINE`) if you want to experiment (start with defaults).
-    *   **DO NOT commit your actual `.env` file to version control!**
-
-5.  **Optional: NLTK Data (for future sentiment analysis):**
-    *   If you plan to implement VADER sentiment analysis (currently not fully wired up but code placeholders exist), download the lexicon:
-    ```bash
-    python -c "import nltk; nltk.download('vader_lexicon')"
-    ```
+    *   **Edit `.env`:**
+        *   **REQUIRED:**
+            *   `FLASK_SECRET_KEY`: Generate a strong random key.
+            *   `HUGGING_FACE_TOKEN`: Paste your Hugging Face token.
+        *   **Verify/Optional:**
+            *   `CELERY_BROKER_URL`: Ensure this points to your running Redis instance (e.g., `redis://localhost:6379/0`).
+            *   `CELERY_RESULT_BACKEND`: Ensure this points to your Redis instance (use a different DB number, e.g., `redis://localhost:6379/1`).
+            *   `FFMPEG_PATH`: Set full path if not in system PATH.
+            *   Review ML model settings (`FASTER_WHISPER_MODEL`, `PYANNOTE_PIPELINE`, etc.). Start with defaults.
+            *   Review directory paths (`DATABASE_PATH`, `DOWNLOAD_DIR`, `PROCESSED_CLIPS_DIR`).
+    *   **DO NOT commit your actual `.env` file!**
 
 ## ▶️ Running the Application
 
-1.  **Ensure your virtual environment is activated.**
-2.  **Make sure FFmpeg is installed and accessible (PATH or `.env`).**
-3.  **Run the Flask app using Waitress:**
-    ```bash
-    python app.py
-    ```
-4.  **Access the Application:** Open your web browser and navigate to:
-    [http://localhost:5001](http://localhost:5001) (or `http://0.0.0.0:5001`)
+You need to run **two** main components: the **Flask Web Application** and the **Celery Worker**. Ensure Redis is running first.
 
-The application uses the Waitress WSGI server by default for better performance than the Flask development server.
+**1. Start Redis:** (If running locally)
+   *   Open a terminal and start the Redis server (command depends on your installation, e.g., `redis-server`).
+
+**2. Start the Celery Worker:**
+   *   Open a **new terminal**.
+   *   Activate your virtual environment (`source venv/bin/activate` or `.\venv\Scripts\activate`).
+   *   Navigate to the project directory (`cd granular_video_processor`).
+   *   Run the Celery worker command:
+
+     ```bash
+     celery -A celery_app.celery_app worker --loglevel=info -P solo
+     ```
+
+     *   `-A celery_app.celery_app`: Points to your Celery application instance.
+     *   `worker`: Specifies that this process should run as a worker.
+     *   `--loglevel=info`: Sets the logging level (use `debug` for more detail).
+     *   `-P solo`: **Crucial for Development/Testing on Windows or without complex setup.** This runs the worker using a simple inline pool (single-threaded within the worker process). For production or parallel processing on Linux/macOS, you might use `-P gevent`, `-P prefork` (default), or `-P eventlet` after installing the corresponding libraries (`pip install gevent eventlet`). `-P solo` is the simplest way to get started.
+
+   *   Keep this terminal open. You should see Celery start up and list the discovered tasks (from `tasks.video_tasks` and `tasks.exchange_tasks`).
+
+**3. Start the Flask Web Application:**
+   *   Open **another new terminal**.
+   *   Activate your virtual environment.
+   *   Navigate to the project directory.
+   *   Run the Flask app using Waitress:
+
+     ```bash
+     python app.py
+     ```
+
+**4. Access the Application:**
+   *   Open your web browser and go to: [http://localhost:5001](http://localhost:5001) (or the host/port configured).
 
 ## 📖 Usage Guide
 
-1.  **Submit Videos:** Go to the main page ("Home"). Paste one or more YouTube video URLs (one per line) into the text area. Select the desired download resolution. Click "Add to Queue".
-2.  **Monitor Progress:** The table on the main page lists all submitted jobs. Refresh the page manually to see updates to the "Status" and "Current Step" columns. The queue size and number of actively processing jobs are shown above the table.
-3.  **View Details:** Click the "Details" button for any video job. This takes you to the video details page where you can find:
-    *   Job status and metadata.
-    *   The combined analysis segments under "Combined Segments & Clip Candidates". Potential short clips (based on configured duration limits) are highlighted.
-    *   Links to view the raw transcript and speaker diarization data.
-    *   A list of clips already generated for this video.
-    *   Any error messages if the job failed.
-4.  **Generate Clips:** On the video details page, locate a "Clip Candidate" segment you're interested in. Click the "Create Clip" button next to it. The application will use FFmpeg to cut the clip from the original downloaded video. The process happens via an AJAX request, and you'll see feedback next to the button (Creating..., Created, Failed). Successfully created clips appear in the "View Generated Clips" section with a link to view/play them.
-5.  **Error Log:** Navigate to the "Error Log" page using the top navigation bar to see a filtered list of jobs that encountered errors.
-6.  **Delete Jobs:** On the main dashboard ("Home"), check the boxes next to the jobs you want to delete. Click the "Delete Selected" button at the bottom. Confirm the deletion. This removes the database record AND attempts to delete the associated downloaded video file, temporary audio file (if any), the download subdirectory, and any generated clips stored in `processed_clips`.
+1.  **Submit Videos:** Go to the main page. Paste YouTube URL(s), select resolution, click "Add & Start Download". This queues the *download task only*.
+2.  **Monitor Progress:** The main table shows overall status (calculated from granular steps). Status updates automatically via SSE.
+3.  **Video Details Page:** Click "Details" for a video.
+    *   **Pipeline Control Panel:** Shows the status of each Phase 1 step (Download, Audio, Transcript, Diarize, Exchange ID). Use the "Run"/"Retry"/"Re-run" buttons to trigger these steps. Buttons are enabled/disabled based on prerequisites.
+    *   **Manage Exchanges:**
+        *   Manually mark exchanges using the Start/End time inputs (use the transcript section below to click segments for easy time selection).
+        *   View automatically identified exchanges (labeled `spkchg_N`) and manually marked ones (`man_...`).
+        *   Use the buttons (<i class="bi bi-people"></i>, <i class="bi bi-list-task"></i>, <i class="bi bi-scissors"></i>) next to each exchange to trigger Phase 2 substeps: Process Diarization, Define Clips, Cut Clips. These buttons also respect prerequisites.
+    *   **View Generated Clips:** See clips created by the "Cut Clips" substep.
+    *   **Full Transcript:** View the transcript. Click segments to populate the Manual Exchange start/end times.
+4.  **Error Log:** Check for jobs with errors.
+5.  **Delete Jobs:** Use checkboxes on the main page.
 
 ## 🔧 Configuration (.env Variables)
 
-*   `FLASK_SECRET_KEY`: **Required**. Secret key for Flask session security.
-*   `HUGGING_FACE_TOKEN`: **Required**. Your read-access token from Hugging Face for downloading models.
-*   `DATABASE_PATH`: (Optional) Path to the SQLite database file. Default: `instance/videos.db`.
-*   `DOWNLOAD_DIR`: (Optional) Base directory for downloading original videos and temporary files. Default: `./downloads`.
-*   `PROCESSED_CLIPS_DIR`: (Optional) Directory where generated MP4 clips are saved. This directory *must* exist and be writable. Default: `./processed_clips`.
-*   `FASTER_WHISPER_MODEL`: (Optional) Whisper model size (`tiny.en`, `base.en`, `small.en`, `medium.en`, `large-v2`, `large-v3`). Default: `base.en`. Larger models are slower and require more RAM/VRAM.
-*   `FASTER_WHISPER_COMPUTE_TYPE`: (Optional) `int8`, `float16`, `float32`. Default: `int8` (good balance for CPU). Use `float16` or `int8` on GPU if available.
-*   `PYANNOTE_PIPELINE`: (Optional) Pyannote pipeline identifier. Default: `pyannote/speaker-diarization@2.1` (Check Hugging Face for newer compatible versions like `pyannote/speaker-diarization-3.1`).
-*   `FFMPEG_PATH`: (Optional) Full path to the `ffmpeg` executable if not in system PATH. Default: `ffmpeg`.
+*   `FLASK_SECRET_KEY`: **Required**.
+*   `HUGGING_FACE_TOKEN`: **Required**.
+*   `CELERY_BROKER_URL`: **Required**. Connection URL for Redis (or other broker).
+*   `CELERY_RESULT_BACKEND`: **Required**. Connection URL for Redis (or other backend).
+*   `DATABASE_PATH`: Path to SQLite DB file.
+*   `DOWNLOAD_DIR`: Base directory for downloads.
+*   `PROCESSED_CLIPS_DIR`: Directory for generated clips.
+*   `FASTER_WHISPER_MODEL`: Whisper model size (`tiny.en`, `base.en`, `small.en`, `medium.en`, `large-v3`, etc.).
+*   `FASTER_WHISPER_COMPUTE_TYPE`: `int8`, `float16`, `float32`. Default: `int8` on CPU, `float16` on CUDA.
+*   `PYANNOTE_PIPELINE`: Pyannote pipeline ID (e.g., `pyannote/speaker-diarization-3.1`).
+*   `FFMPEG_PATH`: Full path to `ffmpeg` if needed.
+*   `LOG_LEVEL`: `DEBUG`, `INFO`, `WARNING`, `ERROR`.
+*   `CLIP_MIN_DURATION_SECONDS` / `CLIP_MAX_DURATION_SECONDS`: (Optional) Used by clip definition logic. Defaults exist if not set.
 
 ## 🛠️ Technical Details
 
-*   **Backend:** Python, Flask
-*   **Frontend:** HTML, Bootstrap 5, Jinja2 Templates, basic JavaScript (inline/AJAX for clipping).
-*   **Database:** SQLite accessed via Python's `sqlite3` module. Uses Write-Ahead Logging (WAL) for better concurrency.
-*   **Video Download:** `yt-dlp` library.
-*   **Audio Processing:** `ffmpeg` (via `subprocess`) for extraction and clipping.
-*   **Transcription:** `faster-whisper` library (optimised CTranslate2 implementation).
-*   **Diarization:** `pyannote.audio` library (requires Hugging Face token).
-*   **Background Tasks:** Standard Python `threading` and `queue.Queue` for sequential job processing.
-*   **Serving:** `Waitress` WSGI server.
+*   **Backend:** Python, Flask, Celery
+*   **Frontend:** HTML, Bootstrap 5, Jinja2, JavaScript (SSE, AJAX).
+*   **Database:** SQLite.
+*   **Task Queue:** Celery with Redis Broker/Backend.
+*   **Video/Audio:** `yt-dlp`, `ffmpeg`.
+*   **Analysis:** `faster-whisper`, `pyannote.audio`.
+*   **Serving:** `Waitress`.
 
 ## ⚡ Troubleshooting Common Issues
 
-*   **Dependency Conflicts:** The ML stack (`torch`, `pyannote`, `faster-whisper`) can be sensitive. If you encounter installation errors:
-    *   Ensure you are using a clean virtual environment.
-    *   Check the specific version compatibility requirements for `pyannote.audio` and the chosen `torch` version. The `requirements.txt` tries to pin working versions, but updates might break things.
-    *   Consider installing `torch` separately first based on your system/CUDA version using instructions from [pytorch.org](https://pytorch.org/).
-*   **Pyannote Errors / Hugging Face Token:**
-    *   `401 Client Error` or `Repository Not Found`: Ensure your `HUGGING_FACE_TOKEN` in `.env` is correct. Crucially, make sure you have accepted the Terms of Service on the Hugging Face website for the *specific Pyannote model* you are trying to use (e.g., `pyannote/speaker-diarization-3.1`).
-*   **FFmpeg Not Found:** Ensure FFmpeg and ffprobe are installed correctly and either added to your system's PATH or the full path is specified in `FFMPEG_PATH` in your `.env` file. Run `ffmpeg -version` in your terminal to test.
-*   **CUDA Out Of Memory (OOM):** If you have a GPU and encounter OOM errors during transcription or diarization:
-    *   Try a smaller `FASTER_WHISPER_MODEL` (e.g., `base.en`, `small.en`).
-    *   Try a different `FASTER_WHISPER_COMPUTE_TYPE` like `int8`.
-    *   Close other applications using GPU memory.
-    *   Ensure your GPU drivers and CUDA toolkit are up to date and compatible with the installed PyTorch version.
-*   **Permission Denied Errors:** The application needs write permissions for the `DOWNLOAD_DIR`, `PROCESSED_CLIPS_DIR`, and the `instance` directory (for the database). Ensure the user running the application has the necessary permissions.
-*   **File Not Found (After Download):** If `yt-dlp` finishes but the app reports the file missing, check console logs for specific download errors or file renaming issues. Ensure the `DOWNLOAD_DIR` is correctly configured.
+*   **`sqlite3.OperationalError: no such table: ...`:** Delete `instance/videos.db` and restart the Flask app *first* to allow `init_db` to run successfully *before* starting the Celery worker.
+*   **Celery Worker Not Starting/Connecting:** Ensure Redis server is running and accessible. Check `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` in `.env`. Check Celery worker logs for connection errors.
+*   **Tasks Stuck in 'Queued'/'Running':** Check Celery worker logs for errors. Ensure the worker is running and connected. Check resource usage (CPU/RAM/GPU). Increase task timeouts in FFmpeg calls (`media_utils.py`) or Celery task definitions if needed for very long operations.
+*   **Pyannote Errors / Hugging Face Token:** Ensure token is correct in `.env` AND you've accepted model terms on HF website.
+*   **FFmpeg Not Found:** Check PATH or `FFMPEG_PATH` in `.env`.
+*   **CUDA OOM:** Try smaller models (`FASTER_WHISPER_MODEL`), different compute types (`int8`), or run on CPU (`DEVICE=cpu` in `.env`, though not directly configurable this way - relies on `torch.cuda.is_available()`).
+*   **Dependency Conflicts:** Use a clean virtual environment. Check library compatibility (PyTorch, Pyannote).
 
 ## 🔮 Future Enhancements (TODO)
 
-*   **More Robust Q&A/Analysis:** Implement actual NLP techniques (e.g., using spaCy, NLTK, or transformers) for better question/answer detection, topic modeling, or sentiment analysis.
-*   **Scalable Worker:** Replace the single-threaded worker with a more robust task queue system like Celery and Redis/RabbitMQ for parallel processing and better scalability.
-*   **Real-time UI Updates:** Implement WebSockets or Server-Sent Events (SSE) to push status updates to the frontend without requiring manual refreshes.
-*   **Retry Failed Jobs:** Add a button to easily re-queue jobs that failed due to transient errors.
-*   **Configuration UI:** Allow changing model settings or paths via the web interface (carefully, requires security considerations).
-*   **Authentication:** Add user login/authentication if the app needs to be secured.
-*   **Subtitle Generation/Embedding:** Add options to generate subtitle files (e.g., VTT, SRT) and optionally burn them into clips.
-*   **More Advanced Clipping:** Allow custom time ranges for clipping, not just pre-defined segments.
+*   **Improve Exchange Detection:** Use more advanced NLP for question detection, refine speaker change logic, potentially integrate LLMs (like Gemini) selectively.
+*   **Parallel Workers:** Configure Celery with pools like `gevent` or `prefork` for parallel task execution (requires careful resource management).
+*   **More Robust UI Feedback:** Better handling of SSE disconnects, visual progress indicators for long tasks.
+*   **Configuration UI:** Allow managing some settings via the web UI.
+*   **Authentication:** Secure the application.
+*   **Subtitle Generation:** Create VTT/SRT files.
 
 ## License
 

@@ -40,48 +40,35 @@ def init_db():
         with get_db_connection() as conn:
             cursor = conn.cursor()
 
-            # === Create `videos` Table (Revised Schema) ===
-            cursor.execute("""DROP TABLE IF EXISTS speaker_segments;""") # Remove old table
-            cursor.execute("""DROP TRIGGER IF EXISTS update_videos_updated_at;""") # Drop old trigger first
+            # === Clean up potential old structures first ===
+            cursor.execute('DROP TRIGGER IF EXISTS update_videos_updated_at;')
+            cursor.execute('DROP TRIGGER IF EXISTS trigger_videos_updated_at;')
+            cursor.execute('DROP TRIGGER IF EXISTS trigger_long_exchange_clips_updated_at;')
 
+            # === Create `videos` Table (Revised Schema) ===
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS videos (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     youtube_url TEXT NOT NULL,
                     title TEXT,
                     resolution TEXT,
-
-                    -- Granular Step Statuses (TEXT: Pending, Queued, Running, Complete, Error)
                     download_status TEXT DEFAULT 'Pending',
                     audio_status TEXT DEFAULT 'Pending',
                     transcript_status TEXT DEFAULT 'Pending',
-                    diarization_status TEXT DEFAULT 'Pending',  -- Status for full audio diarization
-                    exchange_id_status TEXT DEFAULT 'Pending', -- Status for auto exchange identification
-
-                    -- File Paths
-                    file_path TEXT UNIQUE, -- Path to downloaded video
-                    audio_path TEXT,       -- Path to extracted full audio (e.g., cache)
-
-                    -- Step Results (Stored as JSON Text)
-                    transcript TEXT,                -- Result of transcription
-                    full_diarization_result TEXT,   -- Result of full audio diarization
-
-                    -- Manual Interaction Data (Potentially, or integrated into long_exchange_clips)
-                    -- manual_exchanges_data TEXT, -- Alternative: store manual exchanges here if needed
-
-                    -- Output
-                    generated_clips TEXT DEFAULT '[]', -- JSON list of generated short clip paths
-
-                    -- Granular Error Messages
+                    diarization_status TEXT DEFAULT 'Pending',
+                    exchange_id_status TEXT DEFAULT 'Pending',
+                    file_path TEXT UNIQUE,
+                    audio_path TEXT,
+                    transcript TEXT,
+                    full_diarization_result TEXT,
+                    generated_clips TEXT DEFAULT '[]',
                     download_error_message TEXT,
                     audio_error_message TEXT,
                     transcript_error_message TEXT,
                     diarization_error_message TEXT,
                     exchange_id_error_message TEXT,
-
-                    -- Timestamps
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- Auto-updated by trigger
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             logger.debug("`videos` table schema checked/created (granular).")
@@ -91,69 +78,45 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS long_exchange_clips (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     video_id INTEGER NOT NULL,
-                    exchange_label TEXT NOT NULL, -- Unique label (e.g., 'lex_0', 'man_12345')
-                    type TEXT NOT NULL CHECK(type IN ('auto', 'manual')), -- Type of exchange
+                    exchange_label TEXT NOT NULL,
+                    type TEXT NOT NULL CHECK(type IN ('auto', 'manual')),
                     start_time REAL NOT NULL,
                     end_time REAL NOT NULL,
-
-                    -- Auto-Specific Data (Optional, based on original detection)
-                    trigger_marker TEXT, -- Marker text if 'auto' type
-
-                    -- Phase 2 Substep Statuses (TEXT: Pending, Queued, Running, Complete, Error, Not Applicable, Skipped)
-                    diarization_status TEXT DEFAULT 'Pending',      -- Status for processing diarization segment
-                    clip_definition_status TEXT DEFAULT 'Pending', -- Status for defining short clips
-                    clip_cutting_status TEXT DEFAULT 'Pending',     -- Status for cutting short clips
-
-                    -- Phase 2 Substep Results (Stored as JSON Text)
-                    diarization_result TEXT,     -- Filtered diarization turns for this exchange
-                    short_clip_definitions TEXT, -- Defined short clips before cutting
-
-                    -- Phase 2 Substep Error Messages
+                    trigger_marker TEXT, -- NULLable, marker text if 'auto' type based on keywords
+                    diarization_status TEXT DEFAULT 'Pending',
+                    clip_definition_status TEXT DEFAULT 'Pending',
+                    clip_cutting_status TEXT DEFAULT 'Pending',
+                    diarization_result TEXT,
+                    short_clip_definitions TEXT,
                     diarization_error_message TEXT,
                     clip_definition_error_message TEXT,
                     clip_cutting_error_message TEXT,
-
-                    -- Timestamps
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- Auto-updated by trigger
-
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE,
-                    UNIQUE (video_id, exchange_label) -- Ensure unique label per video
+                    UNIQUE (video_id, exchange_label)
                 )
             """)
             logger.debug("`long_exchange_clips` table schema checked/created.")
 
             # === Create Indexes ===
-            # Videos Table
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_download_status ON videos (download_status)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_audio_status ON videos (audio_status)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_transcript_status ON videos (transcript_status)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_diarization_status ON videos (diarization_status)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_exchange_id_status ON videos (exchange_id_status)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_created_at_granular ON videos (created_at)")
-            # Long Exchange Clips Table
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_lec_video_id ON long_exchange_clips (video_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_lec_type ON long_exchange_clips (type)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_lec_diar_status ON long_exchange_clips (diarization_status)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_lec_clip_def_status ON long_exchange_clips (clip_definition_status)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_lec_clip_cut_status ON long_exchange_clips (clip_cutting_status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_created_at ON videos (created_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_long_exchange_clips_video_id ON long_exchange_clips (video_id)")
             logger.debug("Indexes checked/created.")
 
             # === Create `updated_at` Triggers ===
-            # Trigger for 'videos' table
-            cursor.execute('DROP TRIGGER IF EXISTS trigger_videos_updated_at;') # Drop old if exists
             cursor.execute('''
-                CREATE TRIGGER trigger_videos_updated_at
+                CREATE TRIGGER IF NOT EXISTS trigger_videos_updated_at
                 AFTER UPDATE ON videos FOR EACH ROW
+                WHEN OLD.updated_at = NEW.updated_at OR OLD.updated_at IS NULL
                 BEGIN
                     UPDATE videos SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
                 END;
             ''')
-            # Trigger for 'long_exchange_clips' table
-            cursor.execute('DROP TRIGGER IF EXISTS trigger_long_exchange_clips_updated_at;')
             cursor.execute('''
-                CREATE TRIGGER trigger_long_exchange_clips_updated_at
+                CREATE TRIGGER IF NOT EXISTS trigger_long_exchange_clips_updated_at
                 AFTER UPDATE ON long_exchange_clips FOR EACH ROW
+                WHEN OLD.updated_at = NEW.updated_at OR OLD.updated_at IS NULL
                 BEGIN
                     UPDATE long_exchange_clips SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
                 END;
@@ -176,13 +139,9 @@ def dict_from_row(row: sqlite3.Row | None) -> dict | None:
 
 def add_video_job(youtube_url, title, resolution):
     """ Adds a new video job, initializing granular statuses. """
-    # Initial statuses for a new job
     initial_statuses = {
-        'download_status': 'Pending',
-        'audio_status': 'Pending',
-        'transcript_status': 'Pending',
-        'diarization_status': 'Pending',
-        'exchange_id_status': 'Pending',
+        'download_status': 'Pending', 'audio_status': 'Pending', 'transcript_status': 'Pending',
+        'diarization_status': 'Pending', 'exchange_id_status': 'Pending',
     }
     sql = """
         INSERT INTO videos (youtube_url, title, resolution,
@@ -214,7 +173,6 @@ def update_video_path(video_id, file_path):
         return True
     except sqlite3.IntegrityError as e:
          logger.error(f"DB Integrity Error updating file path for video {video_id}: Path '{file_path}' likely already exists (UNIQUE constraint). Error: {e}")
-         # Update download status to Error specifically
          update_video_step_status(video_id, 'download', 'Error', error_message=f"File path conflict: '{os.path.basename(file_path)}' may already be associated with another job.")
          return False
     except sqlite3.Error as e:
@@ -242,7 +200,6 @@ def update_video_step_status(video_id, step_name, status, error_message=None):
     error_col = f"{step_name}_error_message"
     error_message_truncated = str(error_message)[:3000] if error_message else None
 
-    # Clear error message if status is not Error, otherwise set it
     sql = f"UPDATE videos SET {status_col} = ?, {error_col} = ? WHERE id = ?"
     params = (status, error_message_truncated if status == 'Error' else None, video_id)
 
@@ -252,7 +209,7 @@ def update_video_step_status(video_id, step_name, status, error_message=None):
         log_msg = f"Video {video_id} step '{step_name}' status updated to '{status}'."
         if status == 'Error' and error_message_truncated:
             log_msg += f" Error: {error_message_truncated[:100]}..."
-            logger.warning(log_msg) # Log errors as warnings
+            logger.warning(log_msg)
         else:
             logger.info(log_msg)
         return True
@@ -271,9 +228,9 @@ def update_video_step_result(video_id, step_name, result_data):
     result_col = valid_steps_with_results[step_name]
     json_string = None
     if result_data is None:
-        json_string = None # Allow storing NULL
+        json_string = None
     elif isinstance(result_data, str):
-        json_string = result_data # Assume pre-formatted JSON
+        json_string = result_data
     else:
         try: json_string = json.dumps(result_data, ensure_ascii=False)
         except TypeError as e: logger.error(f"Data for step '{step_name}' (vid {video_id}) not JSON serializable: {e}", exc_info=True); return False
@@ -289,39 +246,12 @@ def update_video_step_result(video_id, step_name, result_data):
 
 def add_generated_clip(video_id, clip_path):
     """ Atomically appends a generated clip path to the video's JSON list. """
-    # This function requires careful handling of JSON updates in SQLite.
-    # Option 1: Read-Modify-Write (prone to race conditions without locking)
-    # Option 2: Use SQLite JSON functions (requires recent SQLite version >= 3.38.0)
-
-    # --- Using SQLite JSON functions (Preferred if supported) ---
-    sql_update_json = """
-        UPDATE videos
-        SET generated_clips = json_insert(
-            json_remove(generated_clips, json_each.fullkey), -- Remove existing if found
-            '$[' || json_array_length(json_remove(generated_clips, json_each.fullkey)) || ']', -- Append index
-            ?                                                                                -- New path
-        )
-        FROM json_each(generated_clips)
-        WHERE id = ? AND json_each.value = ?;
-
-        INSERT INTO videos (generated_clips) -- Handle case where clip doesn't exist yet
-        SELECT json_array(?)
-        WHERE NOT EXISTS (
-            SELECT 1 FROM json_each( (SELECT generated_clips FROM videos WHERE id = ?) )
-            WHERE value = ?
-        ) AND (SELECT 1 FROM videos WHERE id = ?); -- Ensure video exists
-
-        -- This approach is complex and might need refinement based on specific SQLite version/behavior
-        -- A simpler read-modify-write within a transaction might be more practical if JSON functions are tricky.
-    """
-    # --- Simpler Read-Modify-Write within Transaction ---
     sql_select = "SELECT generated_clips FROM videos WHERE id = ?"
     sql_update = "UPDATE videos SET generated_clips = ? WHERE id = ?"
 
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            # Begin transaction implicitly with context manager, or explicitly conn.execute("BEGIN")
             row = cursor.execute(sql_select, (video_id,)).fetchone()
             if not row: logger.error(f"Video ID {video_id} not found for adding clip path."); return False
 
@@ -338,13 +268,12 @@ def add_generated_clip(video_id, clip_path):
                 existing_clips.append(clip_path)
                 new_json = json.dumps(existing_clips, ensure_ascii=False)
                 cursor.execute(sql_update, (new_json, video_id))
-                conn.commit() # Commit transaction
-                logger.info(f"Appended clip path '{clip_path}' to video {video_id}.")
+                conn.commit()
+                logger.info(f"Appended clip path '{os.path.basename(clip_path)}' to video {video_id}.")
                 return True
             else:
-                logger.info(f"Clip path '{clip_path}' already exists for video {video_id}.")
-                # No commit needed if no change
-                return True # Still successful
+                logger.info(f"Clip path '{os.path.basename(clip_path)}' already exists for video {video_id}.")
+                return True
     except sqlite3.Error as e:
         logger.error(f"Error adding generated clip path for video {video_id}: {e}", exc_info=True); return False
 
@@ -361,10 +290,9 @@ def get_video_by_id(video_id):
 def get_all_videos(order_by='created_at', desc=True):
     """ Fetches all videos, selecting key columns for the index page. """
     direction = 'DESC' if desc else 'ASC'
-    allowed_columns = ['id', 'title', 'created_at', 'updated_at', 'resolution'] # Add more if needed for index view
+    allowed_columns = ['id', 'title', 'created_at', 'updated_at', 'resolution']
     if order_by not in allowed_columns: order_by = 'created_at'; logger.warning("Invalid order_by fallback.")
 
-    # Select granular statuses needed for overall status display logic in template
     sql = f"""SELECT id, youtube_url, title, resolution, created_at, updated_at,
                      download_status, audio_status, transcript_status, diarization_status, exchange_id_status,
                      download_error_message, audio_error_message, transcript_error_message, diarization_error_message, exchange_id_error_message
@@ -376,7 +304,6 @@ def get_all_videos(order_by='created_at', desc=True):
 
 def get_active_videos_for_sse():
     """ Fetches IDs and all granular statuses for videos currently being processed. """
-    # Defines 'active' as any step being Queued or Running
     active_statuses = "'Queued', 'Running'"
     sql = f"""
         SELECT id, updated_at,
@@ -414,16 +341,15 @@ def get_videos_with_errors():
      """
     try:
         with get_db_connection() as conn: rows = conn.execute(sql).fetchall()
-        # Combine error messages for simpler display? Or let template handle it.
         videos = []
         for row_dict in [dict_from_row(row) for row in rows]:
             first_error_step = "Unknown"
             first_error_msg = "Multiple errors or unknown"
             for step in ['download', 'audio', 'transcript', 'diarization', 'exchange_id']:
                 if row_dict.get(f"{step}_status") == 'Error':
-                    first_error_step = step.capitalize()
+                    first_error_step = step.capitalize().replace('_', ' ')
                     first_error_msg = row_dict.get(f"{step}_error_message", "Error message missing")
-                    break # Show the first error encountered
+                    break
             row_dict['first_error_step'] = first_error_step
             row_dict['first_error_message'] = first_error_msg
             videos.append(row_dict)
@@ -449,35 +375,42 @@ def delete_video_records(video_ids):
 # ==============================================
 
 def add_long_exchanges(video_id, exchange_definitions):
-    """ Adds multiple 'auto' type long exchange records. """
+    """
+    Adds multiple 'auto' type long exchange records.
+    Handles definitions with or without a 'marker' key.
+    """
     if not exchange_definitions: return True
     data_to_insert = []
     for ex_def in exchange_definitions:
-        if 'id' in ex_def and 'start' in ex_def and 'end' in ex_def: # 'marker' is optional now
+        # Essential keys: id (label), start, end
+        if 'id' in ex_def and 'start' in ex_def and 'end' in ex_def:
             data_to_insert.append((
                 video_id,
-                ex_def.get('id'), # Use the generated label e.g., 'lex_0'
-                'auto', # Type
+                ex_def.get('id'),        # e.g., "spkchg_0" or "lex_0"
+                'auto',                  # Type is still 'auto' as it's auto-detected
                 ex_def.get('start'),
                 ex_def.get('end'),
-                ex_def.get('marker'), # Trigger marker
+                ex_def.get('marker'),    # Will be None if not present in dict
                 'Pending', 'Pending', 'Pending' # Initial substep statuses
             ))
-        else: logger.warning(f"Skipping incomplete auto exchange definition for video {video_id}: {ex_def}")
+        else:
+            logger.warning(f"Skipping incomplete exchange definition for video {video_id}: {ex_def}")
 
-    if not data_to_insert: logger.warning(f"No valid auto exchange definitions to insert for video {video_id}."); return False
+    if not data_to_insert:
+        logger.warning(f"No valid exchange definitions provided to insert for video {video_id}.")
+        return False # Return False indicating nothing was inserted
 
-    # Use ON CONFLICT to reset substep statuses if the same auto exchange is re-identified
+    # Use ON CONFLICT to reset substep statuses if the same exchange is re-identified
     sql_insert = """
         INSERT INTO long_exchange_clips (
             video_id, exchange_label, type, start_time, end_time, trigger_marker,
             diarization_status, clip_definition_status, clip_cutting_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) -- 9 placeholders
         ON CONFLICT(video_id, exchange_label) DO UPDATE SET
-            type=excluded.type, -- Should still be 'auto'
+            type=excluded.type, -- Update type in case manual was later marked auto? Unlikely but possible.
             start_time=excluded.start_time,
             end_time=excluded.end_time,
-            trigger_marker=excluded.trigger_marker,
+            trigger_marker=excluded.trigger_marker, -- Handles NULL correctly
             -- Reset substep statuses and results on conflict
             diarization_status='Pending',
             clip_definition_status='Pending',
@@ -490,16 +423,19 @@ def add_long_exchanges(video_id, exchange_definitions):
             updated_at=CURRENT_TIMESTAMP
     """
     try:
-        with get_db_connection() as conn: conn.executemany(sql_insert, data_to_insert); conn.commit()
+        with get_db_connection() as conn:
+            conn.executemany(sql_insert, data_to_insert)
+            conn.commit()
         logger.info(f"Added/Updated {len(data_to_insert)} 'auto' long exchange records for video ID {video_id}.")
         return True
-    except sqlite3.Error as e: logger.error(f"Error adding 'auto' long exchanges for video ID {video_id}: {e}", exc_info=True); return False
+    except sqlite3.Error as e:
+        logger.error(f"Error adding 'auto' long exchanges for video ID {video_id}: {e}", exc_info=True)
+        return False
 
 def add_manual_exchange(video_id, start_time, end_time, label_hint="Manual"):
     """ Adds a 'manual' type long exchange record. """
-    # Generate a unique label, e.g., "man_1678886400_123"
     ts = int(time.time())
-    unique_label = f"man_{ts}_{str(start_time).replace('.', 'p')}" # Make somewhat unique and identifiable
+    unique_label = f"man_{ts}_{str(start_time).replace('.', 'p')}"
     sql_insert = """
         INSERT INTO long_exchange_clips (
             video_id, exchange_label, type, start_time, end_time,
@@ -513,8 +449,8 @@ def add_manual_exchange(video_id, start_time, end_time, label_hint="Manual"):
             new_id = cursor.lastrowid
             conn.commit()
         logger.info(f"Added 'manual' long exchange record ID: {new_id} (Label: {unique_label}) for video ID {video_id}.")
-        return True, new_id # Return success and the DB ID
-    except sqlite3.IntegrityError as e: # Catch potential unique constraint violation
+        return True, new_id
+    except sqlite3.IntegrityError as e:
         logger.error(f"Failed to add manual exchange for video {video_id}: Label '{unique_label}' might already exist. Error: {e}"); return False, None
     except sqlite3.Error as e:
         logger.error(f"Error adding 'manual' long exchange for video ID {video_id}: {e}", exc_info=True); return False, None
@@ -607,37 +543,22 @@ def reset_video_full(video_id: int):
     """ Resets ALL steps and data for a video, preparing for a fresh start (queues download). """
     logger.warning(f"Performing FULL reset for video ID: {video_id}")
     update_fields = {
-        'download_status': 'Queued', # Ready for download task
-        'audio_status': 'Pending',
-        'transcript_status': 'Pending',
-        'diarization_status': 'Pending',
-        'exchange_id_status': 'Pending',
-        'audio_path': None,
-        'transcript': None,
-        'full_diarization_result': None,
-        'generated_clips': '[]',
-        'download_error_message': None,
-        'audio_error_message': None,
-        'transcript_error_message': None,
-        'diarization_error_message': None,
-        'exchange_id_error_message': None,
+        'download_status': 'Queued', 'audio_status': 'Pending', 'transcript_status': 'Pending',
+        'diarization_status': 'Pending', 'exchange_id_status': 'Pending',
+        'audio_path': None, 'transcript': None, 'full_diarization_result': None,
+        'generated_clips': '[]', 'download_error_message': None, 'audio_error_message': None,
+        'transcript_error_message': None, 'diarization_error_message': None, 'exchange_id_error_message': None,
     }
     set_clauses = [f"{col} = ?" for col in update_fields.keys()]
     params = list(update_fields.values())
     params.append(video_id)
-
     sql_update_video = f"UPDATE videos SET {', '.join(set_clauses)} WHERE id = ?"
-
     try:
         with get_db_connection() as conn:
-            # --- Perform updates within a transaction ---
             cursor = conn.execute(sql_update_video, tuple(params))
             rows_affected = cursor.rowcount
             if rows_affected == 0: logger.warning(f"Video ID {video_id} not found during full reset."); return False
-
-            # Clear associated exchanges
-            clear_long_exchanges_for_video(video_id) # Clears both types
-
+            clear_long_exchanges_for_video(video_id) # Clears both 'auto' and 'manual'
             conn.commit()
             logger.info(f"Successfully performed FULL reset for video ID: {video_id}")
             return True
@@ -647,28 +568,33 @@ def reset_video_full(video_id: int):
 def reset_video_step(video_id: int, step_name_to_reset: str):
     """ Resets a specific step and all subsequent dependent steps for a video. """
     logger.warning(f"Resetting video ID {video_id} starting from step: {step_name_to_reset}")
-    # Define the dependency chain
     steps_in_order = ['download', 'audio', 'transcript', 'diarization', 'exchange_id']
     steps_with_results = {'transcript': 'transcript', 'diarization': 'full_diarization_result'}
     steps_with_paths = {'audio': 'audio_path'}
-
-    try:
-        reset_start_index = steps_in_order.index(step_name_to_reset)
+    try: reset_start_index = steps_in_order.index(step_name_to_reset)
     except ValueError: logger.error(f"Invalid step name '{step_name_to_reset}' for reset."); return False
 
     update_fields = {}
     # Reset statuses and errors for the target step and subsequent steps
     for i in range(reset_start_index, len(steps_in_order)):
         step = steps_in_order[i]
-        update_fields[f"{step}_status"] = 'Pending' if i > reset_start_index else 'Queued' # Queue the first step to reset
+        # Set the first step being reset to 'Queued', subsequent ones to 'Pending'
+        update_fields[f"{step}_status"] = 'Queued' if i == reset_start_index else 'Pending'
         update_fields[f"{step}_error_message"] = None
         # Reset results/paths for subsequent steps
         if step in steps_with_results: update_fields[steps_with_results[step]] = None
         if step in steps_with_paths: update_fields[steps_with_paths[step]] = None
 
-    # Special case: resetting transcript or earlier also clears generated clips and exchanges
+    # If resetting transcript or earlier, also clear generated clips and ALL exchanges
+    # If resetting diarization or exchange_id, only clear 'auto' exchanges (keep manual)
+    clear_auto_exchanges = False
     if reset_start_index <= steps_in_order.index('transcript'):
         update_fields['generated_clips'] = '[]'
+        # Clear both 'auto' and 'manual' exchanges if resetting from transcript or earlier
+        clear_long_exchanges_for_video(video_id)
+    elif reset_start_index <= steps_in_order.index('exchange_id'):
+        # Clear only 'auto' exchanges if resetting from diarization or exchange_id
+        clear_auto_exchanges = True
 
     if not update_fields: logger.info(f"No fields to update for reset from step '{step_name_to_reset}'."); return True
 
@@ -682,9 +608,9 @@ def reset_video_step(video_id: int, step_name_to_reset: str):
             cursor = conn.execute(sql_update_video, tuple(params)); rows_affected = cursor.rowcount
             if rows_affected == 0: logger.warning(f"Video ID {video_id} not found during step reset."); return False
 
-            # Clear exchanges if transcript or earlier step was reset
-            if reset_start_index <= steps_in_order.index('transcript'):
-                clear_long_exchanges_for_video(video_id) # Clears both types
+            # Clear 'auto' exchanges if needed (after main update)
+            if clear_auto_exchanges:
+                clear_long_exchanges_for_video(video_id, type_filter='auto')
 
             conn.commit()
             logger.info(f"Successfully reset video ID {video_id} from step '{step_name_to_reset}'.")
@@ -695,14 +621,9 @@ def reset_exchange_substeps(exchange_db_id: int):
     """ Resets all Phase 2 substep statuses/results/errors for a specific exchange. """
     logger.warning(f"Resetting all substeps for exchange ID: {exchange_db_id}")
     update_fields = {
-        'diarization_status': 'Pending',
-        'clip_definition_status': 'Pending',
-        'clip_cutting_status': 'Pending',
-        'diarization_result': None,
-        'short_clip_definitions': None,
-        'diarization_error_message': None,
-        'clip_definition_error_message': None,
-        'clip_cutting_error_message': None,
+        'diarization_status': 'Pending', 'clip_definition_status': 'Pending', 'clip_cutting_status': 'Pending',
+        'diarization_result': None, 'short_clip_definitions': None, 'diarization_error_message': None,
+        'clip_definition_error_message': None, 'clip_cutting_error_message': None,
     }
     set_clauses = [f"{col} = ?" for col in update_fields.keys()]
     params = list(update_fields.values())

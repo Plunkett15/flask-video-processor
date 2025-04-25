@@ -12,7 +12,8 @@ celery_app = Celery(
     'video_processor_tasks', # Can be any name, helps identify workers/logs
     broker=config.CELERY_BROKER_URL,
     backend=config.CELERY_RESULT_BACKEND,
-    include=['pipeline'] # List of modules where tasks are defined (important!)
+    # <<< MODIFIED: Point to the new task modules >>>
+    include=['tasks.video_tasks', 'tasks.exchange_tasks'] # List of modules where tasks are defined
 )
 
 # Load Celery configuration from the Config object
